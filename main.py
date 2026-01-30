@@ -14,9 +14,9 @@ from selenium.webdriver.support import expected_conditions as EC
 
 # --- CONFIGURATION ---
 THREADS = 2           
-BURST_SIZE = 15       
-BURST_DELAY = 0.3     
-CYCLE_DELAY = 1.0     
+BURST_SIZE = 5        # Lower burst for stability
+BURST_DELAY = 0.5     # Wait for UI to update
+CYCLE_DELAY = 2.0     
 SESSION_DURATION = 1200 
 LOG_FILE = "message_log.txt"
 
@@ -52,6 +52,7 @@ def get_driver(agent_id):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     
+    # MOBILE EMULATION (Pixel 5)
     mobile_emulation = {
         "deviceMetrics": { "width": 393, "height": 851, "pixelRatio": 3.0 },
         "userAgent": "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36"
@@ -60,7 +61,7 @@ def get_driver(agent_id):
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v44_{agent_id}_{random.randint(100,999)}")
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v45_{agent_id}_{random.randint(100,999)}")
     return webdriver.Chrome(options=chrome_options)
 
 def clear_popups(driver):
@@ -77,52 +78,44 @@ def clear_popups(driver):
         except: pass
 
 def find_mobile_box(driver):
-    # Expanded list to catch DIVs too
     selectors = [
         "//textarea", 
         "//div[@contenteditable='true']",
-        "//div[@role='textbox']",
-        "//div[contains(@aria-label, 'Message')]"
+        "//div[@role='textbox']"
     ]
     for xpath in selectors:
         try: return driver.find_element(By.XPATH, xpath)
         except: continue
     return None
 
-def universal_inject(driver, element, text):
+def physical_type_and_click(driver, element, text):
     """
-    🔥 V44: UNIVERSAL POLYMER INJECTOR
-    Safely handles both TEXTAREA and DIV inputs to prevent crashes.
+    🔥 V45: HYBRID CLICKER
+    1. Click Box
+    2. Type Text
+    3. WAIT for 'Send' button to be clickable
+    4. Click 'Send'
     """
-    driver.execute_script("""
-        var element = arguments[0];
-        var text = arguments[1];
-        
-        function triggerEvents(el) {
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            el.dispatchEvent(new Event('focus', { bubbles: true }));
-        }
-
-        // CHECK 1: Is it a Text Area?
-        if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-            nativeSetter.call(element, text);
-            triggerEvents(element);
-        } 
-        // CHECK 2: Is it a Content-Editable Div?
-        else {
-            element.innerText = text; // Direct text set for DIVs
-            triggerEvents(element);
-        }
-    """, element, text)
-    
-    time.sleep(0.05) 
-    
     try:
-        driver.find_element(By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']").click()
+        # 1. Focus
+        element.click()
+        
+        # 2. Type
+        element.send_keys(text)
+        
+        # 3. Wait for Button Activation (Crucial for Phantom Fix)
+        # The button only appears/activates when text is valid
+        send_btn = WebDriverWait(driver, 2).until(
+            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']"))
+        )
+        
+        # 4. Click
+        send_btn.click()
+        return True
     except:
+        # Fallback: If button doesn't appear, try Enter
         element.send_keys(Keys.ENTER)
+        return False
 
 def run_life_cycle(agent_id, cookie, target, messages):
     driver = None
@@ -130,7 +123,7 @@ def run_life_cycle(agent_id, cookie, target, messages):
     start_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix V44 (Universal Injector)...")
+        log_status(agent_id, "🚀 Phoenix V45 (Hybrid Clicker)...")
         driver = get_driver(agent_id)
         
         driver.get("https://www.instagram.com/")
@@ -156,15 +149,15 @@ def run_life_cycle(agent_id, cookie, target, messages):
             log_status(agent_id, "❌ Box not found.")
             return
 
-        log_status(agent_id, "⚡ Universal Link Established.")
+        log_status(agent_id, "⚡ Hybrid Link Established.")
 
         while (time.time() - start_time) < SESSION_DURATION:
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
                     
-                    # 🚨 V44: SAFE INJECTION
-                    universal_inject(driver, msg_box, f"{msg} ")
+                    # 🚨 V45: PHYSICAL SEND
+                    physical_type_and_click(driver, msg_box, f"{msg} ")
                     
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
@@ -189,7 +182,7 @@ def agent_worker(agent_id, cookie, target, messages):
         time.sleep(5)
 
 def main():
-    print("🔥 V44 UNIVERSAL INJECTOR | CRASH FIX", flush=True)
+    print("🔥 V45 HYBRID CLICKER | PHANTOM FIX", flush=True)
     cookie = os.environ.get("INSTA_COOKIE", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
     messages = os.environ.get("MESSAGES", "Hello").split("|")
