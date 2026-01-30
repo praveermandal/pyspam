@@ -16,7 +16,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 # --- CONFIGURATION ---
 THREADS = 2           
 BURST_SIZE = 5        
-BURST_DELAY = 1.5     # Slower to allow Paste operation
+BURST_DELAY = 0.5     
 CYCLE_DELAY = 2.0     
 SESSION_DURATION = 1200 
 REFRESH_INTERVAL = 300 
@@ -53,13 +53,15 @@ def get_driver(agent_id):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
     
-    # Enable Clipboard Permissions
+    # 🚨 V30: ACTIVATE MOBILE MODE (Pixel 5)
+    mobile_emulation = { "deviceName": "Pixel 5" }
+    chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
+    
+    # Fix for Automation Detection
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    chrome_options.add_argument(f"user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/12{agent_id+2}.0.0.0 Safari/537.36")
     chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_p_{agent_id}_{random.randint(1,99999)}")
     return webdriver.Chrome(options=chrome_options)
 
@@ -68,7 +70,9 @@ def perform_login(driver, agent_id, username, password):
     try:
         driver.get("https://www.instagram.com/accounts/login/")
         time.sleep(6)
-        try: driver.find_element(By.XPATH, "//button[contains(text(), 'Allow')]").click()
+        
+        # Mobile Login often has different buttons
+        try: driver.find_element(By.XPATH, "//button[contains(text(), 'Log In')]").click()
         except: pass
 
         user_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "username")))
@@ -91,47 +95,39 @@ def perform_login(driver, agent_id, username, password):
         log_status(agent_id, f"❌ Login Error: {e}")
         return False
 
-def find_chat_box(driver):
+def find_mobile_box(driver):
+    """
+    V30: MOBILE SELECTORS
+    Mobile Instagram uses textareas instead of contenteditable divs.
+    """
     selectors = [
-        "//div[@contenteditable='true']",
-        "//div[@role='textbox']",
-        "//textarea"
+        "//textarea", # Standard Mobile Input
+        "//textarea[contains(@placeholder, 'Message...')]",
+        "//div[@role='textbox']"
     ]
     for xpath in selectors:
         try: return driver.find_element(By.XPATH, xpath)
         except: continue
     return None
 
-def clipboard_paste_send(driver, element, text):
+def mobile_send_logic(driver, element, text):
     """
-    V29: CLIPBOARD BYPASS
-    1. Sets the value of the clipboard using JS (Headless compatible)
-    2. Focuses the chat box
-    3. Simulates CTRL+V (Paste)
-    4. Simulates ENTER
+    V30: MOBILE SEND
+    1. Click Text Area
+    2. Send Keys (Works better on Mobile view)
+    3. Click the specific 'Send' text button that appears
     """
-    
-    # 1. Clear previous text just in case
-    # element.clear() # Sometimes this breaks React, so we skip it or use keys
-    
-    # 2. Focus
     element.click()
+    element.send_keys(text)
+    time.sleep(0.5) # Wait for 'Send' button to light up
     
-    # 3. Type the text "Human Style" (Char by Char)
-    # Since CTRL+V is hard in headless Linux sometimes, falling back 
-    # to character typing with ActionChains is more reliable than 'injecting'.
-    
-    actions = ActionChains(driver)
-    actions.move_to_element(element)
-    actions.click()
-    
-    # Type letter by letter (This guarantees the event fires)
-    for char in text:
-        actions.send_keys(char)
-        
-    # Send Enter
-    actions.send_keys(Keys.ENTER)
-    actions.perform()
+    try:
+        # On Mobile, the Send button is often just text "Send"
+        send_btn = driver.find_element(By.XPATH, "//div[contains(text(), 'Send')]")
+        send_btn.click()
+    except:
+        # Fallback to Enter
+        element.send_keys(Keys.ENTER)
 
 def run_life_cycle(agent_id, user, pw, cookie, target, messages):
     driver = None
@@ -140,15 +136,12 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
     last_refresh_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix Rising...")
+        log_status(agent_id, "🚀 Phoenix Rising (Mobile Mode)...")
         driver = get_driver(agent_id)
         
         driver.get("https://www.instagram.com/")
         time.sleep(3)
-        if "instagram.com" not in driver.current_url:
-            driver.get("https://www.instagram.com/")
-            time.sleep(5)
-
+        
         if cookie:
             clean_session = cookie.split("sessionid=")[1].split(";")[0] if "sessionid=" in cookie else cookie
             driver.add_cookie({'name': 'sessionid', 'value': clean_session, 'path': '/'})
@@ -161,8 +154,10 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
         driver.get(target_url)
         time.sleep(5)
         
-        # Clear Popups
+        # Clear 'Use the App' Popups common on mobile
         try: driver.find_element(By.XPATH, "//button[text()='Not Now']").click()
+        except: pass
+        try: driver.find_element(By.XPATH, "//button[contains(text(), 'Cancel')]").click()
         except: pass
 
         if "login" in driver.current_url:
@@ -171,11 +166,10 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
             driver.get(target_url)
             time.sleep(5)
 
-        msg_box = find_chat_box(driver)
+        msg_box = find_mobile_box(driver)
         if not msg_box:
             log_status(agent_id, f"❌ ERROR: Chat box not found.")
-            if "/inbox" in driver.current_url and "/t/" not in driver.current_url:
-                log_status(agent_id, "💀 FATAL: Redirected to Inbox. ID Invalid.")
+            driver.save_screenshot(f"debug_mobile_error_{agent_id}.png")
             return
 
         log_status(agent_id, "✅ Target Locked. Sending...")
@@ -185,17 +179,16 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 log_status(agent_id, "♻️ RAM Soft Refresh...")
                 driver.refresh()
                 time.sleep(5)
-                msg_box = find_chat_box(driver)
+                msg_box = find_mobile_box(driver)
                 if not msg_box: break
                 last_refresh_time = time.time()
 
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
-                    jitter = "⠀" * random.randint(0, 1)
+                    jitter = " " # Simple space jitter for mobile
                     
-                    # 🚨 V29: USE ACTION CHAINS (Mimics Keyboard Hardware)
-                    clipboard_paste_send(driver, msg_box, f"{msg}{jitter}")
+                    mobile_send_logic(driver, msg_box, f"{msg}{jitter}")
 
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
@@ -207,11 +200,13 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 time.sleep(CYCLE_DELAY)
             except Exception as e:
                 log_status(agent_id, f"⚠️ Loop Error: {e}")
-                msg_box = find_chat_box(driver)
+                msg_box = find_mobile_box(driver)
                 if not msg_box: break
 
     except Exception as e:
         log_status(agent_id, f"❌ Critical Crash: {e}")
+        if driver:
+            driver.save_screenshot(f"debug_crash_agent_{agent_id}.png")
     finally:
         if driver:
             try: driver.quit()
@@ -228,7 +223,7 @@ def main():
     with open(LOG_FILE, "w") as f:
         f.write(f"--- SESSION START: {datetime.datetime.now()} ---\n")
     
-    print(f"🔥 V29 KEYBOARD MIMIC | {THREADS} THREADS", flush=True)
+    print(f"🔥 V30 MOBILE EMULATION | {THREADS} THREADS", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
