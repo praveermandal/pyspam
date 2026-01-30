@@ -1,11 +1,11 @@
-name: Phoenix V60 Lazarus
+name: Phoenix V61 Lazarus
 
 on:
-  workflow_dispatch:      # Manual trigger
-  repository_dispatch:    # Triggered by the loop
+  workflow_dispatch:      # Manual trigger button
+  repository_dispatch:    # Restart trigger
     types: [restart_bot]
   schedule:
-    - cron: '0 */6 * * *' # Backup start (Every 6 hours)
+    - cron: '0 */4 * * *' # Backup start (Every 4 hours)
 
 permissions:
   actions: write
@@ -14,10 +14,10 @@ permissions:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # Safety limit (Max 6 hours)
+    timeout-minutes: 350  # Hard stop after ~6 hours
 
     steps:
-    - name: Checkout code
+    - name: Checkout Code
       uses: actions/checkout@v4
 
     - name: Set up Python
@@ -36,9 +36,9 @@ jobs:
       run: |
         pip install selenium
 
-    - name: 🔥 Run Phoenix V58 (Adaptive)
+    - name: 🔥 Run Phoenix Protocol
       id: bot_process
-      continue-on-error: true  # Prevents immediate stop if script crashes
+      continue-on-error: true  # Prevents crash from stopping the restart logic
       env:
         INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
         TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
@@ -46,13 +46,20 @@ jobs:
       run: python main.py
 
     - name: 🔄 The Lazarus Protocol (Auto-Restart)
-      if: always()  # RUNS EVEN IF THE BOT CRASHED
+      if: always()  # Runs even if the script crashes
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        echo "⚠️ Bot stopped or finished. Initiating restart sequence..."
-        sleep 30  # Wait 30s to prevent rapid-fire API bans
-        gh workflow run python-app.yml
+        echo "⚠️ Bot finished. Calculating safety delay..."
+        
+        # 🛡️ SAFETY DELAY: Wait 5 to 15 minutes before restarting
+        # This prevents the 'Automated Behavior' flag from triggering instantly
+        DELAY=$(( ( RANDOM % 600 ) + 300 ))
+        echo "💤 Sleeping for $DELAY seconds ($((DELAY / 60)) minutes)..."
+        sleep $DELAY
+        
+        echo "🚀 Restarting main.yml..."
+        gh workflow run main.yml
 
     - name: 📸 Upload Debug Evidence (Only on Failure)
       if: failure() || steps.bot_process.outcome == 'failure'
