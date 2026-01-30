@@ -1,43 +1,44 @@
-name: V22.2 Log Fix Relay
+name: Phoenix V50 Ghost
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual trigger button
   schedule:
-    - cron: '55 5,11,17,23 * * *'
+    - cron: '0 */6 * * *' # Auto-runs every 6 hours
 
 jobs:
-  launch-lazarus:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v2
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install selenium 
+    - name: Install Google Chrome
+      run: |
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
 
-      - name: Run V22.2 Phoenix
-        env:
-          PYTHONUNBUFFERED: 1 
-          # 👇 THIS SECTION IS THE BRIDGE. IT MUST BE HERE.
-          INSTA_USER: ${{ secrets.INSTA_USER }}
-          INSTA_PASS: ${{ secrets.INSTA_PASS }}
-          INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
-          TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
-          MESSAGES: ${{ secrets.MESSAGES }}
-        run: python main.py
+    - name: Install Dependencies
+      run: |
+        pip install selenium
 
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phoenix-logs
-          path: message_log.txt
+    - name: Run V50 Ghost Protocol
+      env:
+        INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
+        TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
+        MESSAGES: ${{ secrets.MESSAGES }}
+      run: python main.py
+      
+    - name: Upload Debug Screenshots (If Crashed)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-screenshots
+        path: "*.png"
