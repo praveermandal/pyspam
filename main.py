@@ -1,5 +1,6 @@
 import os
 import time
+import re
 import random
 import datetime
 import shutil
@@ -15,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- CONFIGURATION ---
 THREADS = 2           
 BURST_SIZE = 10       
-BURST_SPEED = 0.4     # Slightly slower to allow React sync
+BURST_SPEED = 0.4     
 CYCLE_DELAY = 2.0     
 SESSION_DURATION = 1200 
 LOG_FILE = "message_log.txt"
@@ -45,7 +46,7 @@ def get_driver(agent_id):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     
-    # 📉 V52: LIGHTWEIGHT MODE (Block Images)
+    # 📉 V53: LIGHTWEIGHT MODE
     prefs = {
         "profile.managed_default_content_settings.images": 2, 
         "profile.default_content_setting_values.notifications": 2,
@@ -64,7 +65,7 @@ def get_driver(agent_id):
     }
     chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
     
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v52_{agent_id}_{random.randint(100,999)}")
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v53_{agent_id}_{random.randint(100,999)}")
     
     driver = webdriver.Chrome(options=chrome_options)
     
@@ -89,43 +90,42 @@ def find_mobile_box(driver):
     return None
 
 def automa_inject(driver, element, text):
-    """
-    🔥 V52: AUTOMA REFINED
-    Uses 'execCommand' + Explicit Event Triggering.
-    This fixes the 'Unavailable Message' bug.
-    """
     try:
-        # 1. Click to Focus (Crucial for execCommand)
         element.click()
-        
-        # 2. The Automa Injection (JS)
         driver.execute_script("""
             var el = arguments[0];
-            var txt = arguments[1];
-            
             el.focus();
-            
-            // The Automa Command (Simulates Paste)
-            document.execCommand('insertText', false, txt);
-            
-            // 🚨 FORCE REACT SYNC (Fixes 'Unavailable')
+            document.execCommand('insertText', false, arguments[1]);
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
         """, element, text)
-        
-        # 3. Short Sleep to let UI update
         time.sleep(0.15)
-        
-        # 4. Click Send
         try:
-            btn = driver.find_element(By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']")
-            btn.click()
+            driver.find_element(By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']").click()
         except:
             element.send_keys(Keys.ENTER)
-            
         return True
     except:
         return False
+
+def extract_session_id(raw_cookie):
+    """
+    🔥 V53: SMART PARSER
+    Extracts the session ID regardless of format (JSON, Header, Raw)
+    """
+    if not raw_cookie: return None
+    
+    # 1. Try Regex for standard ID format (30+ chars, mostly alphanumeric/percent)
+    # Looks for pattern like: 54321%3A... or 54321:...
+    match = re.search(r'sessionid=([^;]+)', raw_cookie)
+    if match:
+        return match.group(1).strip()
+        
+    # 2. Fallback: Assume the user pasted JUST the ID
+    if len(raw_cookie) > 20 and "sessionid" not in raw_cookie:
+        return raw_cookie.strip()
+        
+    return None
 
 def run_life_cycle(agent_id, cookie, target, messages):
     driver = None
@@ -133,37 +133,41 @@ def run_life_cycle(agent_id, cookie, target, messages):
     start_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix V52 (Automa Refined)...")
+        log_status(agent_id, "🚀 Phoenix V53 (Smart Cookie Parser)...")
         driver = get_driver(agent_id)
         
         driver.get("https://www.instagram.com/")
         time.sleep(2)
         
-        if cookie:
-            try:
-                clean = cookie.strip()
-                if "sessionid=" in clean:
-                    clean = clean.split("sessionid=")[1].split(";")[0].strip()
-                
-                driver.add_cookie({
-                    'name': 'sessionid', 
-                    'value': clean, 
-                    'path': '/', 
-                    'domain': '.instagram.com'
-                })
-            except: 
-                log_status(agent_id, "❌ Cookie Invalid")
-                return
+        # 🍪 V53: SMART PARSING
+        clean_session = extract_session_id(cookie)
+        if not clean_session:
+            log_status(agent_id, "❌ FATAL: Could not parse Session ID from secret.")
+            return
+
+        try:
+            driver.add_cookie({
+                'name': 'sessionid', 
+                'value': clean_session, 
+                'path': '/', 
+                'domain': '.instagram.com'
+            })
+        except Exception as e:
+            log_status(agent_id, f"❌ Cookie Injection Error: {e}")
+            return
         
         driver.refresh()
         time.sleep(3) 
         
+        if "login" in driver.current_url:
+            log_status(agent_id, "💀 Cookie Expired (Redirected to Login).")
+            return
+
         target_url = f"https://www.instagram.com/direct/t/{target}/"
         log_status(agent_id, "🔍 Navigating...")
         driver.get(target_url)
         time.sleep(5)
         
-        # Blind Popup Clear
         try:
             driver.execute_script("document.querySelectorAll('div[role=dialog]').forEach(e => e.remove());")
             driver.find_element(By.XPATH, "//button[text()='Not Now']").click()
@@ -173,7 +177,6 @@ def run_life_cycle(agent_id, cookie, target, messages):
         
         if not msg_box:
             log_status(agent_id, "❌ Box not found.")
-            driver.save_screenshot(f"box_missing_{agent_id}.png")
             return
 
         log_status(agent_id, "✅ Automa Active. Sending...")
@@ -182,8 +185,6 @@ def run_life_cycle(agent_id, cookie, target, messages):
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
-                    
-                    # 🚨 V52 EXECUTION
                     automa_inject(driver, msg_box, f"{msg} ")
                     
                     sent_in_this_life += 1
@@ -209,11 +210,15 @@ def agent_worker(agent_id, cookie, target, messages):
         time.sleep(5)
 
 def main():
-    print("🔥 V52 AUTOMA REFINED | UNAVAILABLE FIX", flush=True)
+    print("🔥 V53 SMART COOKIE PARSER | AUTOMA MODE", flush=True)
     
     cookie = os.environ.get("INSTA_COOKIE", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
     messages = os.environ.get("MESSAGES", "Hello").split("|")
+
+    if not cookie:
+        print("❌ CRITICAL: INSTA_COOKIE is missing.")
+        return
 
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
         for i in range(THREADS):
