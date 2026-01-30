@@ -1,4 +1,4 @@
-name: V17.6 Real-Time Turbo
+name: V22.2 Log Fix Relay
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     - cron: '55 5,11,17,23 * * *'
 
 jobs:
-  launch-realtime:
+  launch-lazarus:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -22,13 +22,15 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install selenium webdriver-manager
+          pip install selenium 
 
-      - name: Run V17.6 Real-Time
+      - name: Run V22.2 Phoenix
         env:
-          # ⚡ THIS IS THE KEY TO REAL-TIME LOGS
           PYTHONUNBUFFERED: 1 
-          INSTA_SESSION: ${{ secrets.INSTA_SESSION }}
+          # 👇 THIS SECTION IS THE BRIDGE. IT MUST BE HERE.
+          INSTA_USER: ${{ secrets.INSTA_USER }}
+          INSTA_PASS: ${{ secrets.INSTA_PASS }}
+          INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
           TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
           MESSAGES: ${{ secrets.MESSAGES }}
         run: python main.py
@@ -37,5 +39,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: realtime-logs
+          name: phoenix-logs
           path: message_log.txt
