@@ -12,7 +12,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# --- AUTOMA CONFIGURATION ---
+# --- CONFIGURATION ---
 THREADS = 2           
 BURST_SIZE = 10       
 BURST_DELAY = 0.5     
@@ -52,7 +52,6 @@ def get_driver(agent_id):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     
-    # MOBILE EMULATION (Required for session hijack)
     mobile_emulation = {
         "deviceMetrics": { "width": 393, "height": 851, "pixelRatio": 3.0 },
         "userAgent": "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36"
@@ -61,7 +60,7 @@ def get_driver(agent_id):
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v40_1_{agent_id}_{random.randint(100,999)}")
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v41_{agent_id}_{random.randint(100,999)}")
     return webdriver.Chrome(options=chrome_options)
 
 def clear_popups(driver):
@@ -89,16 +88,35 @@ def find_mobile_box(driver):
         except: continue
     return None
 
-def automa_inject(driver, element, text):
+def clipboard_paste_event(driver, element, text):
     """
-    🔥 THE AUTOMA METHOD
-    Uses document.execCommand('insertText')
+    🔥 V41: CLIPBOARD PASTE EVENT
+    This bypasses the 'Unavailable Message' error by simulating
+    a real data paste event, forcing React to accept the text string.
     """
     driver.execute_script("""
         var element = arguments[0];
         var text = arguments[1];
+        
         element.focus();
-        document.execCommand('insertText', false, text);
+        
+        // Create a fake paste event
+        var dataTransfer = new DataTransfer();
+        dataTransfer.items.add(text, 'text/plain');
+        
+        var pasteEvent = new ClipboardEvent('paste', {
+            clipboardData: dataTransfer,
+            bubbles: true,
+            cancelable: true
+        });
+        
+        element.dispatchEvent(pasteEvent);
+        
+        // Backup: Standard insert if paste is blocked
+        if (!element.value || element.value === "") {
+            document.execCommand('insertText', false, text);
+        }
+        
         element.dispatchEvent(new Event('input', {bubbles: true}));
         element.dispatchEvent(new Event('change', {bubbles: true}));
     """, element, text)
@@ -118,36 +136,31 @@ def run_life_cycle(agent_id, cookie, target, messages):
     start_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix V40.1 (Automa Protocol)...")
+        log_status(agent_id, "🚀 Phoenix V41 (Clipboard Protocol)...")
         driver = get_driver(agent_id)
         
         # 1. Load Domain
         driver.get("https://www.instagram.com/")
         time.sleep(3)
         
-        # 2. Inject Cookie (ROBUST MODE)
+        # 2. Inject Cookie
         if cookie:
             try:
-                # 🚨 FIX: Smart Parser
                 if "sessionid=" in cookie:
-                    # Case 1: Full cookie string
                     clean_session = cookie.split("sessionid=")[1].split(";")[0].strip()
                 else:
-                    # Case 2: Raw ID only
                     clean_session = cookie.strip()
                 
-                # Validation
                 if not clean_session or len(clean_session) < 5:
-                    raise ValueError(f"Cookie ID is too short or empty: '{clean_session}'")
+                    raise ValueError(f"Cookie ID invalid")
 
-                # 🚨 FIX: Add Domain explicit
                 driver.add_cookie({
                     'name': 'sessionid', 
                     'value': clean_session, 
                     'path': '/', 
                     'domain': '.instagram.com'
                 })
-                log_status(agent_id, "🍪 Cookie Injected Successfully.")
+                log_status(agent_id, "🍪 Cookie Injected.")
             except Exception as e:
                 log_status(agent_id, f"❌ Cookie Error: {e}")
                 return
@@ -173,14 +186,15 @@ def run_life_cycle(agent_id, cookie, target, messages):
             driver.save_screenshot(f"box_missing_{agent_id}.png")
             return
 
-        log_status(agent_id, "✅ Automa Connected. Sending...")
+        log_status(agent_id, "✅ Clipboard Ready. Sending...")
 
         while (time.time() - start_time) < SESSION_DURATION:
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
                     
-                    automa_inject(driver, msg_box, f"{msg} ")
+                    # 🚨 NO JITTER (Fixes 'Unavailable' bug)
+                    clipboard_paste_event(driver, msg_box, msg)
                     
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
@@ -205,8 +219,8 @@ def agent_worker(agent_id, cookie, target, messages):
         time.sleep(5)
 
 def main():
-    with open(LOG_FILE, "w") as f: f.write("PHOENIX V40.1 START\n")
-    print("🔥 V40.1 AUTOMA | COOKIE FIXED", flush=True)
+    with open(LOG_FILE, "w") as f: f.write("PHOENIX V41 START\n")
+    print("🔥 V41 CLIPBOARD PROTOCOL | JITTER REMOVED", flush=True)
     
     cookie = os.environ.get("INSTA_COOKIE", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
