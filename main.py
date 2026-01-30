@@ -53,8 +53,6 @@ def get_driver(agent_id):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    
-    # 🚨 V35 FIX: INCOGNITO & CLEAN PROFILE
     chrome_options.add_argument("--incognito")
     
     # MANUAL MOBILE METRICS (Pixel 5)
@@ -64,67 +62,74 @@ def get_driver(agent_id):
     }
     chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    
-    # Randomized temp folder to ensure no cache overlap
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v35_{agent_id}_{random.randint(100,999)}")
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v36_{agent_id}_{random.randint(100,999)}")
     return webdriver.Chrome(options=chrome_options)
 
-def clear_popups(driver, agent_id):
-    popups = [
-        "//button[text()='Not Now']",
-        "//button[text()='Cancel']",
-        "//div[text()='Not now']",
-        "//button[contains(text(), 'Allow all cookies')]", # Essential for login
-        "//button[contains(text(), 'Decline optional cookies')]"
-    ]
-    for xpath in popups:
+def bypass_blockers(driver, agent_id):
+    """
+    V36: BLIND BYPASS
+    Presses TAB + ENTER repeatedly to clear generic overlays (Cookie walls/App upsells)
+    """
+    log_status(agent_id, "🔨 Attempting Blind Bypass (Tab+Enter)...")
+    try:
+        actions = ActionChains(driver)
+        # Tab 2 times then Enter (Common for 'Allow Cookies' buttons)
+        actions.send_keys(Keys.TAB * 2).send_keys(Keys.ENTER).perform()
+        time.sleep(2)
+        
+        # Try finding 'Log In' link on home page
         try:
-            btn = driver.find_element(By.XPATH, xpath)
-            btn.click()
-            time.sleep(1)
+            login_link = driver.find_element(By.XPATH, "//a[contains(text(), 'Log In')] | //button[contains(text(), 'Log In')]")
+            login_link.click()
+            time.sleep(3)
         except: pass
+        
+    except: pass
 
 def full_login_flow(driver, agent_id, username, password):
-    log_status(agent_id, "🔑 Navigating to Clean Login Page...")
+    log_status(agent_id, "🔑 Navigating to Login...")
     try:
-        # 🚨 V35 FIX: Clean URL (No redirects)
         driver.get("https://www.instagram.com/accounts/login/")
-        time.sleep(7)
+        time.sleep(5)
         
-        # Check title to see if page loaded
-        log_status(agent_id, f"📄 Page Title: {driver.title}")
+        # Check Title
+        log_status(agent_id, f"📄 Page: {driver.title}")
         
-        # Check for Cookie Consent
-        clear_popups(driver, agent_id)
-
-        # 1. Wait for Username Field
+        # 1. First Attempt to find Username
         try:
-            user_input = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.NAME, "username"))
-            )
-            user_input.send_keys(username)
-            time.sleep(random.uniform(1, 2))
+            user_input = driver.find_element(By.NAME, "username")
         except:
-            # 📸 DEBUG: If this fails, we need to know why
-            log_status(agent_id, "❌ Timeout: Username field not found. Dumping page source...")
-            driver.save_screenshot(f"login_timeout_agent_{agent_id}.png")
-            return False
+            # 🚨 BLOCKED? TRIGGER V36 BYPASS
+            log_status(agent_id, "⚠️ Login field hidden. Running Modal Breaker...")
+            bypass_blockers(driver, agent_id)
+            
+            # Retry finding username
+            try:
+                user_input = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.NAME, "username"))
+                )
+            except:
+                log_status(agent_id, "❌ Still Blocked. Dumping Screenshot.")
+                driver.save_screenshot(f"blocked_agent_{agent_id}.png")
+                return False
 
-        # 2. Enter Password
+        # 2. Login Process
+        user_input.send_keys(username)
+        time.sleep(1)
+        
         pass_input = driver.find_element(By.NAME, "password")
         pass_input.send_keys(password)
         time.sleep(1)
         pass_input.send_keys(Keys.ENTER)
             
-        log_status(agent_id, "⏳ Waiting for Login Confirmation...")
+        log_status(agent_id, "⏳ Verifying Login...")
         time.sleep(12)
         
-        # 3. Final Verification
         if "login" in driver.current_url:
-            log_status(agent_id, "❌ Login Failed. Still at Login URL.")
+            log_status(agent_id, "❌ Login Failed.")
             return False
             
-        log_status(agent_id, "✅ Identity Mask Verified. Login Success.")
+        log_status(agent_id, "✅ Login Success.")
         return True
 
     except Exception as e:
@@ -164,7 +169,7 @@ def run_life_cycle(agent_id, user, pw, target, messages):
     start_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix V35.1 Booting...")
+        log_status(agent_id, "🚀 Phoenix V36 (Modal Breaker)...")
         driver = get_driver(agent_id)
         
         if not full_login_flow(driver, agent_id, user, pw):
@@ -174,7 +179,9 @@ def run_life_cycle(agent_id, user, pw, target, messages):
         driver.get(target_url)
         time.sleep(8)
         
-        clear_popups(driver, agent_id)
+        # Run bypass again just in case 'Use App' popup appears
+        bypass_blockers(driver, agent_id)
+        
         msg_box = find_mobile_box(driver)
         
         if not msg_box:
@@ -182,7 +189,7 @@ def run_life_cycle(agent_id, user, pw, target, messages):
             driver.save_screenshot(f"box_not_found_agent_{agent_id}.png")
             return
 
-        log_status(agent_id, "✅ Target Locked. Commencing Transmission.")
+        log_status(agent_id, "✅ Target Locked. Sending...")
 
         while (time.time() - start_time) < SESSION_DURATION:
             try:
@@ -211,8 +218,8 @@ def agent_worker(agent_id, user, pw, target, messages):
         time.sleep(10)
 
 def main():
-    with open(LOG_FILE, "w") as f: f.write("PHOENIX V35.1 START\n")
-    print("🔥 V35.1 IDENTITY MASK | STANDING BY", flush=True)
+    with open(LOG_FILE, "w") as f: f.write("PHOENIX V36 START\n")
+    print("🔥 V36 MODAL BREAKER | STANDING BY", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
