@@ -11,6 +11,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 
 # --- CONFIGURATION ---
 THREADS = 2           
@@ -52,101 +53,83 @@ def get_driver(agent_id):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--incognito") # 🚨 V35: Force clean slate
     
     # MANUAL MOBILE METRICS (Pixel 5)
     mobile_emulation = {
         "deviceMetrics": { "width": 393, "height": 851, "pixelRatio": 3.0 },
-        "userAgent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36"
+        "userAgent": "Mozilla/5.0 (Linux; Android 12; Pixel 5 Build/SP1A.210812.016.A1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
     }
     chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
-    
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_p_{agent_id}_{random.randint(1,99999)}")
+    # Randomize temp folder to prevent lock-file errors
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v35_{agent_id}_{random.randint(100,999)}")
     return webdriver.Chrome(options=chrome_options)
 
 def clear_popups(driver, agent_id):
-    """
-    V34: UI BULLDOZER
-    Aggressively clicks every known 'Close' button to reveal the chat.
-    """
-    buttons_to_click = [
+    popups = [
         "//button[text()='Not Now']",
         "//button[text()='Cancel']",
         "//div[text()='Not now']",
-        "//button[contains(text(), 'Use the App')]/following-sibling::button", # Close app upsell
-        "//div[@role='dialog']//button[contains(@aria-label, 'Close')]"
+        "//button[contains(text(), 'Allow all cookies')]", # 🚨 Essential for Login
+        "//button[contains(text(), 'Decline optional cookies')]"
     ]
-    
-    for xpath in buttons_to_click:
+    for xpath in popups:
         try:
             btn = driver.find_element(By.XPATH, xpath)
             btn.click()
-            log_status(agent_id, f"🧹 Cleared Popup: {xpath}")
             time.sleep(1)
-        except:
-            pass
-            
-    # Blind Escape Key (Closes generic modals)
-    try: ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-    except: pass
-
-def full_login_flow(driver, agent_id, username, password):
-    log_status(agent_id, f"🔑 Starting Fresh Login for {username}...")
-    try:
-        driver.get("https://www.instagram.com/accounts/login/")
-        time.sleep(5)
-        
-        try: driver.find_element(By.XPATH, "//button[contains(text(), 'Allow')]").click()
         except: pass
 
-        user_input = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.NAME, "username")))
-        user_input.send_keys(username)
-        time.sleep(1)
+def full_login_flow(driver, agent_id, username, password):
+    log_status(agent_id, "🔑 Navigating to Clean Login Page...")
+    try:
+        # 🚨 V35: Use a clean URL without redirect params to lower security flags
+        driver.get("https://www.instagram.com/accounts/login/")
+        time.sleep(7)
         
+        # Check for Cookie Consent blocking the UI
+        clear_popups(driver, agent_id)
+
+        # 1. Wait for Username Field
+        try:
+            user_input = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.NAME, "username"))
+            )
+            user_input.send_keys(username)
+            time.sleep(random.uniform(1, 2))
+        except:
+            log_status(agent_id, "❌ Login fields not visible. (Blocked by Captcha or Consent)")
+            driver.save_screenshot(f"login_blocked_agent_{agent_id}.png")
+            return False
+
+        # 2. Enter Password
         pass_input = driver.find_element(By.NAME, "password")
         pass_input.send_keys(password)
         time.sleep(1)
-        
-        try:
-            login_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
-            login_btn.click()
-        except:
-            pass_input.send_keys(Keys.ENTER)
+        pass_input.send_keys(Keys.ENTER)
             
-        log_status(agent_id, "⏳ Verifying Credentials...")
-        time.sleep(10)
+        log_status(agent_id, "⏳ Waiting for Login Confirmation...")
+        time.sleep(12)
         
-        # Handle Post-Login Popups
-        clear_popups(driver, agent_id)
-
-        driver.get("https://www.instagram.com/")
-        time.sleep(5)
-        
+        # 3. Final Verification
         if "login" in driver.current_url:
-            log_status(agent_id, "❌ Fresh Login Failed.")
-            driver.save_screenshot(f"debug_login_fail_{agent_id}.png")
+            log_status(agent_id, "❌ Login Failed. Still at Login URL.")
             return False
             
-        log_status(agent_id, "✅ Fresh Login Successful!")
+        log_status(agent_id, "✅ Identity Mask Verified. Login Success.")
         return True
 
     except Exception as e:
-        log_status(agent_id, f"❌ Login Crash: {e}")
+        log_status(agent_id, f"❌ Login Exception: {e}")
         return False
 
 def find_mobile_box(driver):
-    """
-    V34: EXPANDED SELECTORS
-    Tries 5 different ways to find the chat box on Mobile Web.
-    """
     selectors = [
         "//textarea", 
         "//div[@role='textbox']",
-        "//textarea[contains(@placeholder, 'Message...')]",
-        "//div[contains(@aria-label, 'Message')]",
-        "//form//textarea" # Generic form textarea
+        "//div[contains(@aria-label, 'Message')]"
     ]
     for xpath in selectors:
         try: return driver.find_element(By.XPATH, xpath)
@@ -156,18 +139,15 @@ def find_mobile_box(driver):
 def mobile_js_inject(driver, element, text):
     driver.execute_script("""
         var elm = arguments[0], txt = arguments[1];
-        elm.value += txt;
+        elm.value = txt;
         elm.dispatchEvent(new Event('input', {bubbles: true}));
-        elm.dispatchEvent(new Event('change', {bubbles: true}));
     """, element, text)
-    
-    time.sleep(0.2)
+    time.sleep(0.5)
     element.send_keys(" ")
     element.send_keys(Keys.BACK_SPACE)
     time.sleep(0.5) 
-    
     try:
-        send_btn = driver.find_element(By.XPATH, "//div[contains(text(), 'Send')]")
+        send_btn = driver.find_element(By.XPATH, "//div[contains(text(), 'Send')] | //button[text()='Send']")
         send_btn.click()
     except:
         element.send_keys(Keys.ENTER)
@@ -175,74 +155,49 @@ def mobile_js_inject(driver, element, text):
 def run_life_cycle(agent_id, user, pw, target, messages):
     driver = None
     sent_in_this_life = 0
-    session_start_time = time.time()
-    last_refresh_time = time.time()
+    start_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix V34 (UI Bulldozer)...")
+        log_status(agent_id, "🚀 Phoenix V35 Booting...")
         driver = get_driver(agent_id)
         
         if not full_login_flow(driver, agent_id, user, pw):
             return
 
         target_url = f"https://www.instagram.com/direct/t/{target}/"
-        log_status(agent_id, f"🔍 Navigating to Target...")
         driver.get(target_url)
-        time.sleep(8) # Wait longer for Mobile UI to load
+        time.sleep(8)
         
-        # 🚜 BULLDOZER MODE: CLEAR ALL POPUPS
         clear_popups(driver, agent_id)
-        time.sleep(2)
-
         msg_box = find_mobile_box(driver)
+        
         if not msg_box:
-            log_status(agent_id, f"❌ ERROR: Chat box not found. URL: {driver.current_url}")
-            driver.save_screenshot(f"debug_mobile_error_{agent_id}.png")
-            
-            # If redirected to inbox, warn user
-            if "/direct/inbox/" in driver.current_url:
-                 log_status(agent_id, "💀 FATAL: Redirected to Inbox! ID is wrong or blocked.")
+            log_status(agent_id, "❌ Chat box not found. Finalizing Screenshot.")
+            driver.save_screenshot(f"box_not_found_agent_{agent_id}.png")
             return
 
-        log_status(agent_id, "✅ Target Locked. Sending...")
+        log_status(agent_id, "✅ Target Locked. Commencing Transmission.")
 
-        while (time.time() - session_start_time) < SESSION_DURATION:
-            if (time.time() - last_refresh_time) > REFRESH_INTERVAL:
-                log_status(agent_id, "♻️ RAM Soft Refresh...")
-                driver.refresh()
-                time.sleep(8)
-                clear_popups(driver, agent_id)
-                msg_box = find_mobile_box(driver)
-                if not msg_box: break
-                last_refresh_time = time.time()
-
+        while (time.time() - start_time) < SESSION_DURATION:
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
-                    jitter = " " 
-                    mobile_js_inject(driver, msg_box, f"{msg}{jitter}")
-
+                    mobile_js_inject(driver, msg_box, f"{msg} ")
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
                         global GLOBAL_SENT
                         GLOBAL_SENT += 1
-                    time.sleep(random.uniform(0.15, 0.25))
+                    time.sleep(random.uniform(0.1, 0.3))
                 
-                log_speed(agent_id, sent_in_this_life, session_start_time)
+                log_speed(agent_id, sent_in_this_life, start_time)
                 time.sleep(CYCLE_DELAY)
-            except Exception as e:
-                log_status(agent_id, f"⚠️ Loop Error: {e}")
-                msg_box = find_mobile_box(driver)
-                if not msg_box: break
+            except:
+                break
 
     except Exception as e:
-        log_status(agent_id, f"❌ Critical Crash: {e}")
+        log_status(agent_id, f"❌ Agent Crash: {e}")
     finally:
-        if driver:
-            try: driver.quit()
-            except: pass
-        try: shutil.rmtree(f"/tmp/chrome_p_{agent_id}", ignore_errors=True)
-        except: pass
+        if driver: driver.quit()
 
 def agent_worker(agent_id, user, pw, target, messages):
     while True:
@@ -250,19 +205,13 @@ def agent_worker(agent_id, user, pw, target, messages):
         time.sleep(10)
 
 def main():
-    with open(LOG_FILE, "w") as f:
-        f.write(f"--- SESSION START: {datetime.datetime.now()} ---\n")
-    
-    print(f"🔥 V34 UI BULLDOZER | {THREADS} THREADS", flush=True)
+    with open(LOG_FILE, "w") as f: f.write("PHOENIX V35 START\n")
+    print("🔥 V35 IDENTITY MASK | STANDING BY", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
     messages = os.environ.get("MESSAGES", "Hello").split("|")
-
-    if not user or not pw: 
-        print("❌ CRITICAL: Secrets Missing!")
-        return
 
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
         for i in range(THREADS):
