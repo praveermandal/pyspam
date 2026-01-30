@@ -10,12 +10,13 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 
-# --- ADAPTIVE CONFIGURATION ---
+# --- V56 CONFIGURATION ---
 THREADS = 2           
-BASE_BURST = 20       # High speed target
-BASE_SPEED = 0.2      # Fast injection
-BASE_DELAY = 1.0      # Short breather
+BASE_BURST = 20       
+BASE_SPEED = 0.2      
+BASE_DELAY = 1.0      
 SESSION_DURATION = 1200 
+REFRESH_INTERVAL = 600
 
 GLOBAL_SENT = 0
 COUNTER_LOCK = threading.Lock()
@@ -50,7 +51,7 @@ def get_driver(agent_id):
         "userAgent": "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36"
     }
     chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v54_{agent_id}_{random.randint(100,999)}")
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v56_{agent_id}_{random.randint(100,999)}")
     
     driver = webdriver.Chrome(options=chrome_options)
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -68,10 +69,6 @@ def find_mobile_box(driver):
     return None
 
 def adaptive_inject(driver, element, text):
-    """
-    🔥 V54: ADAPTIVE INJECTION
-    Returns True if successful, False if blocked.
-    """
     try:
         element.click()
         driver.execute_script("""
@@ -101,10 +98,11 @@ def run_life_cycle(agent_id, cookie, target, messages):
     driver = None
     sent_in_this_life = 0
     start_time = time.time()
+    last_refresh_time = time.time()
     recovery_mode = False
     
     try:
-        log_status(agent_id, "🚀 Phoenix V54 (Adaptive Engine)...")
+        log_status(agent_id, "🚀 Phoenix V56 (Session Guard)...")
         driver = get_driver(agent_id)
         driver.get("https://www.instagram.com/")
         time.sleep(2)
@@ -117,16 +115,35 @@ def run_life_cycle(agent_id, cookie, target, messages):
         driver.get(f"https://www.instagram.com/direct/t/{target}/")
         time.sleep(6)
 
+        msg_box = find_mobile_box(driver)
+
         while (time.time() - start_time) < SESSION_DURATION:
-            msg_box = find_mobile_box(driver)
-            if not msg_box:
-                log_status(agent_id, "⚠️ Box missing. Entering Recovery...")
-                time.sleep(30) # Wait for UI to return
+            # ♻️ MAINTENANCE & SESSION GUARD
+            if (time.time() - last_refresh_time) > REFRESH_INTERVAL:
+                log_status(agent_id, "♻️ Maintenance: Refreshing Page...")
                 driver.refresh()
                 time.sleep(5)
-                continue
+                
+                # 🛡️ SESSION GUARD: Did we get logged out?
+                if "login" in driver.current_url:
+                    log_status(agent_id, "⚠️ Detected Logout! Re-injecting Cookie...")
+                    driver.add_cookie({'name': 'sessionid', 'value': clean_session, 'path': '/', 'domain': '.instagram.com'})
+                    driver.refresh()
+                    time.sleep(5)
+                    driver.get(f"https://www.instagram.com/direct/t/{target}/")
+                    time.sleep(5)
+                
+                msg_box = find_mobile_box(driver)
+                last_refresh_time = time.time()
+                log_status(agent_id, "✅ Session Secure. Resuming.")
 
-            # Set dynamic speed based on status
+            if not msg_box:
+                msg_box = find_mobile_box(driver)
+                if not msg_box:
+                    time.sleep(5)
+                    continue
+
+            # Speed Settings
             current_burst = 5 if recovery_mode else BASE_BURST
             current_speed = 1.0 if recovery_mode else BASE_SPEED
             current_delay = 5.0 if recovery_mode else BASE_DELAY
@@ -142,9 +159,8 @@ def run_life_cycle(agent_id, cookie, target, messages):
                         GLOBAL_SENT += 1
                     time.sleep(current_speed)
                 else:
-                    break # Break burst if one fails
+                    break 
 
-            # Logic: If entire burst failed, turn on recovery
             if success_count == 0:
                 recovery_mode = True
                 log_status(agent_id, "🐢 Rate Limit Detected. Slowing down...")
@@ -163,6 +179,7 @@ def main():
     cookie = os.environ.get("INSTA_COOKIE", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
     messages = os.environ.get("MESSAGES", "Hello").split("|")
+    
     if not cookie: return
 
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
