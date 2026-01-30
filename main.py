@@ -11,11 +11,12 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 
 # --- CONFIGURATION ---
 THREADS = 2           
 BURST_SIZE = 5        
-BURST_DELAY = 0.3     # Slightly slower to allow "Send" button to activate
+BURST_DELAY = 0.5     # Slowed down to allow button click
 CYCLE_DELAY = 2.0     
 SESSION_DURATION = 1200 
 REFRESH_INTERVAL = 300 
@@ -90,24 +91,42 @@ def perform_login(driver, agent_id, username, password):
         log_status(agent_id, f"❌ Login Error: {e}")
         return False
 
-def real_type_inject(driver, element, text):
+def human_type_and_click(driver, element, text):
     """
-    V24 FIX: Hybird Injection
-    1. Injects the main text via JS (Fast)
-    2. Types a 'Space' via Selenium (Wakes up the Send Button)
+    V25: NUCLEAR OPTION
+    1. Focuses element
+    2. Types keys one by one (True Simulation)
+    3. Finds the 'Send' button explicitly
+    4. Clicks it
     """
-    # 1. Fast Inject
-    driver.execute_script("""
-        var elm = arguments[0], txt = arguments[1];
-        elm.focus();
-        document.execCommand('insertText', false, txt);
-    """, element, text)
+    # 1. Clear & Focus
+    driver.execute_script("arguments[0].focus();", element)
     
-    # 2. Wake Up Event (The "Ghost Buster" Logic)
-    # We send a physical space key, then a backspace.
-    # This forces Instagram to acknowledge "User is typing"
-    element.send_keys(" ")
+    # 2. Type Human-like (This triggers the UI updates)
+    for char in text:
+        element.send_keys(char)
+        # Tiny delay between keystrokes to mimic human
+        # time.sleep(random.uniform(0.01, 0.03)) 
+    
+    # 3. Force Space to wake up "Send" button
+    element.send_keys(" ") 
     element.send_keys(Keys.BACK_SPACE)
+    time.sleep(0.1)
+
+    # 4. FIND AND CLICK THE SEND BUTTON
+    # We look for the button that appears only when text is typed
+    try:
+        # Standard "Send" Text Button
+        send_btn = driver.find_element(By.XPATH, "//div[@role='button'][text()='Send']")
+        send_btn.click()
+    except:
+        try:
+            # Fallback: Sometimes it's not text, but an SVG/Icon container
+            # This looks for the generic 'Send' button container in Direct
+            # Modify this XPath if Instagram updates their UI
+            element.send_keys(Keys.ENTER)
+        except:
+            pass
 
 def run_life_cycle(agent_id, user, pw, cookie, target, messages):
     driver = None
@@ -166,18 +185,8 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                     msg = random.choice(messages)
                     jitter = "⠀" * random.randint(0, 1)
                     
-                    # 🚨 V24 CHANGE: USE HYBRID TYPING
-                    real_type_inject(driver, msg_box, f"{msg}{jitter}")
-                    
-                    # Try ENTER first
-                    msg_box.send_keys(Keys.ENTER)
-                    
-                    # 🚨 FALLBACK: Look for the 'Send' button explicitly if Enter failed
-                    # This is heavy, so we rely on Enter mostly, but this ensures delivery
-                    # try:
-                    #     send_btn = driver.find_element(By.XPATH, "//div[text()='Send']")
-                    #     send_btn.click()
-                    # except: pass
+                    # 🚨 V25: USE CLICKER
+                    human_type_and_click(driver, msg_box, f"{msg}{jitter}")
 
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
@@ -189,6 +198,8 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 time.sleep(CYCLE_DELAY)
             except Exception as e:
                 log_status(agent_id, f"⚠️ Loop Error: {e}")
+                # Take screenshot on error to debug why click failed
+                driver.save_screenshot(f"debug_loop_fail_{agent_id}.png")
                 break 
 
     except Exception as e:
@@ -211,7 +222,7 @@ def main():
     with open(LOG_FILE, "w") as f:
         f.write(f"--- SESSION START: {datetime.datetime.now()} ---\n")
     
-    print(f"🔥 V24 GHOST BUSTER | {THREADS} THREADS", flush=True)
+    print(f"🔥 V25 NUCLEAR CLICKER | {THREADS} THREADS", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
