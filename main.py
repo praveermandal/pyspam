@@ -53,19 +53,19 @@ def get_driver(agent_id):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     
-    # 🚨 V37: NO INCOGNITO (Standard Profile)
-    # We want cookies to stick briefly for the warm-up strategy
-    
-    # MANUAL MOBILE METRICS (Pixel 5)
+    # 🚨 V38: SESSION HIJACK CONFIG
+    # We must look EXACTLY like a phone for the cookie to work
     mobile_emulation = {
         "deviceMetrics": { "width": 393, "height": 851, "pixelRatio": 3.0 },
-        "userAgent": "Mozilla/5.0 (Linux; Android 12; Pixel 5 Build/SP1A.210812.016.A1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        "userAgent": "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36"
     }
     chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     
-    # Randomize temp folder
-    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v37_{agent_id}_{random.randint(100,999)}")
+    # Disable Automation Flags that trigger 'Suspicious Activity'
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_v38_{agent_id}_{random.randint(100,999)}")
     return webdriver.Chrome(options=chrome_options)
 
 def clear_popups(driver):
@@ -73,94 +73,14 @@ def clear_popups(driver):
         "//button[text()='Not Now']",
         "//button[text()='Cancel']",
         "//div[text()='Not now']",
-        "//button[contains(text(), 'Allow all cookies')]",
-        "//button[contains(text(), 'Decline optional cookies')]"
+        "//button[contains(text(), 'Use the App')]/following-sibling::button", # Close App upsell
+        "//button[contains(@aria-label, 'Close')]"
     ]
     for xpath in popups:
         try:
-            btn = driver.find_element(By.XPATH, xpath)
-            btn.click()
+            driver.find_element(By.XPATH, xpath).click()
             time.sleep(1)
         except: pass
-
-def warm_up_and_relogin(driver, agent_id, username, password, cookie):
-    """
-    V37 STRATEGY:
-    1. Inject Cookie -> Refresh (Warm up device trust)
-    2. Logout Manually
-    3. Login with Password
-    """
-    
-    # --- STEP 1: COOKIE WARM UP ---
-    log_status(agent_id, "🍪 Phase 1: Cookie Warm-Up...")
-    driver.get("https://www.instagram.com/")
-    time.sleep(3)
-    
-    if cookie:
-        try:
-            clean_session = cookie.split("sessionid=")[1].split(";")[0] if "sessionid=" in cookie else cookie
-            driver.add_cookie({'name': 'sessionid', 'value': clean_session, 'path': '/'})
-        except:
-            log_status(agent_id, "⚠️ Invalid Cookie Format. Skipping Warm-up.")
-
-    driver.refresh()
-    time.sleep(5)
-    
-    # 📸 SNAPSHOT 1: Did cookie work?
-    driver.save_screenshot(f"debug_1_cookie_result_agent_{agent_id}.png")
-
-    # --- STEP 2: FORCED LOGOUT ---
-    log_status(agent_id, "👋 Phase 2: Forcing Clean Logout...")
-    driver.get("https://www.instagram.com/accounts/logout/")
-    time.sleep(8)
-    
-    # 📸 SNAPSHOT 2: Are we at login page?
-    driver.save_screenshot(f"debug_2_logout_result_agent_{agent_id}.png")
-
-    # --- STEP 3: FRESH LOGIN ---
-    log_status(agent_id, "🔑 Phase 3: Fresh Login Attempt...")
-    
-    # Ensure we are at login URL
-    if "login" not in driver.current_url:
-        driver.get("https://www.instagram.com/accounts/login/")
-        time.sleep(5)
-
-    clear_popups(driver)
-
-    try:
-        user_input = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.NAME, "username"))
-        )
-        user_input.send_keys(username)
-        time.sleep(1)
-        
-        pass_input = driver.find_element(By.NAME, "password")
-        pass_input.send_keys(password)
-        time.sleep(1)
-        
-        # Click Login
-        try:
-            driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        except:
-            pass_input.send_keys(Keys.ENTER)
-            
-        log_status(agent_id, "⏳ Verifying Login...")
-        time.sleep(10)
-        
-        # 📸 SNAPSHOT 3: Did login succeed?
-        driver.save_screenshot(f"debug_3_login_result_agent_{agent_id}.png")
-        
-        if "login" in driver.current_url or "challenge" in driver.current_url:
-            log_status(agent_id, "❌ Login Failed (Challenge or Bad Pass).")
-            return False
-            
-        log_status(agent_id, "✅ Login Success!")
-        return True
-
-    except Exception as e:
-        log_status(agent_id, f"❌ Login Exception: {e}")
-        driver.save_screenshot(f"debug_error_login_agent_{agent_id}.png")
-        return False
 
 def find_mobile_box(driver):
     selectors = [
@@ -174,7 +94,6 @@ def find_mobile_box(driver):
     return None
 
 def mobile_js_inject(driver, element, text):
-    # Safe injection
     driver.execute_script("""
         var elm = arguments[0], txt = arguments[1];
         elm.value = txt;
@@ -190,37 +109,67 @@ def mobile_js_inject(driver, element, text):
     except:
         element.send_keys(Keys.ENTER)
 
-def run_life_cycle(agent_id, user, pw, cookie, target, messages):
+def run_life_cycle(agent_id, cookie, target, messages):
     driver = None
     sent_in_this_life = 0
     start_time = time.time()
     
     try:
-        log_status(agent_id, "🚀 Phoenix V37 (Warm-Up Protocol)...")
+        log_status(agent_id, "🚀 Phoenix V38 (Session Hijack)...")
         driver = get_driver(agent_id)
         
-        # Run the V37 Logic
-        if not warm_up_and_relogin(driver, agent_id, user, pw, cookie):
+        # 1. Go to Domain
+        driver.get("https://www.instagram.com/")
+        time.sleep(3)
+        
+        # 2. Inject Cookie DIRECTLY (Skip Login Page)
+        if cookie:
+            try:
+                clean_session = cookie.split("sessionid=")[1].split(";")[0] if "sessionid=" in cookie else cookie
+                driver.add_cookie({'name': 'sessionid', 'value': clean_session, 'path': '/'})
+                log_status(agent_id, "🍪 Cookie Injected.")
+            except:
+                log_status(agent_id, "❌ Error parsing cookie!")
+                return
+        
+        # 3. Reload to Activate Cookie
+        driver.refresh()
+        time.sleep(5)
+        
+        # 4. Check if Cookie worked
+        # If we see "Log In" button, the cookie is DEAD
+        if "login" in driver.current_url or "Log In" in driver.title:
+            log_status(agent_id, "💀 Cookie is DEAD/Expired. Stopping Agent.")
+            driver.save_screenshot(f"dead_cookie_agent_{agent_id}.png")
             return
 
+        # 5. Navigate to Target
         target_url = f"https://www.instagram.com/direct/t/{target}/"
         log_status(agent_id, "🔍 Navigating to Target...")
         driver.get(target_url)
         time.sleep(8)
         
         clear_popups(driver)
+        
+        # 6. Verify we are NOT in the Inbox list
+        if "/inbox" in driver.current_url and "/t/" not in driver.current_url:
+            log_status(agent_id, "⚠️ Redirected to Inbox. Checking for 'Not Now' popup...")
+            clear_popups(driver)
+            driver.get(target_url) # Try forcing URL one more time
+            time.sleep(8)
+
         msg_box = find_mobile_box(driver)
         
         if not msg_box:
             log_status(agent_id, "❌ Chat box not found.")
-            # 📸 SNAPSHOT 4: Why is box missing?
-            driver.save_screenshot(f"debug_4_box_missing_agent_{agent_id}.png")
+            driver.save_screenshot(f"box_not_found_agent_{agent_id}.png")
             
-            if "/inbox" in driver.current_url:
-                log_status(agent_id, "💀 FATAL: Redirected to Inbox. ID is Invalid!")
+            # If we are stuck on a challenge page
+            if "challenge" in driver.current_url:
+                log_status(agent_id, "🚨 ACCOUNT CHALLENGED (Phone Verification Req).")
             return
 
-        log_status(agent_id, "✅ Target Locked. Sending...")
+        log_status(agent_id, "✅ Session Active. Sending...")
 
         while (time.time() - start_time) < SESSION_DURATION:
             try:
@@ -239,28 +188,31 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 break
 
     except Exception as e:
-        log_status(agent_id, f"❌ Agent Crash: {e}")
+        log_status(agent_id, f"❌ Crash: {e}")
     finally:
         if driver: driver.quit()
 
-def agent_worker(agent_id, user, pw, cookie, target, messages):
+def agent_worker(agent_id, cookie, target, messages):
     while True:
-        run_life_cycle(agent_id, user, pw, cookie, target, messages)
+        # Note: Username/Pass removed. We rely 100% on cookie.
+        run_life_cycle(agent_id, cookie, target, messages)
         time.sleep(10)
 
 def main():
-    with open(LOG_FILE, "w") as f: f.write("PHOENIX V37 START\n")
-    print("🔥 V37 WARM-UP PROTOCOL | STANDING BY", flush=True)
+    with open(LOG_FILE, "w") as f: f.write("PHOENIX V38 START\n")
+    print("🔥 V38 SESSION HIJACK | COOKIE ONLY", flush=True)
     
-    user = os.environ.get("INSTA_USER", "").strip()
-    pw = os.environ.get("INSTA_PASS", "").strip()
-    cookie = os.environ.get("INSTA_COOKIE", "").strip() # Needed for Warm-up
+    cookie = os.environ.get("INSTA_COOKIE", "").strip()
     target = os.environ.get("TARGET_THREAD_ID", "").strip()
     messages = os.environ.get("MESSAGES", "Hello").split("|")
 
+    if not cookie: 
+        print("❌ CRITICAL: INSTA_COOKIE Missing!")
+        return
+
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
         for i in range(THREADS):
-            executor.submit(agent_worker, i+1, user, pw, cookie, target, messages)
+            executor.submit(agent_worker, i+1, cookie, target, messages)
 
 if __name__ == "__main__":
     main()
