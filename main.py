@@ -89,41 +89,42 @@ def perform_login(driver, agent_id, username, password):
         return False
 
 def find_chat_box(driver):
-    """
-    V26: The Selector Hunter
-    Tries multiple known XPaths for the Instagram chat box.
-    """
     selectors = [
-        "//div[@contenteditable='true']",                  # Standard
-        "//div[@role='textbox']",                          # Alternate
-        "//textarea",                                      # Mobile/Legacy
-        "//div[contains(@aria-label, 'Message')]",         # Accessible Label
+        "//div[@contenteditable='true']",
+        "//div[@role='textbox']",
+        "//textarea",
+        "//div[contains(@aria-label, 'Message')]",
     ]
-    
     for xpath in selectors:
-        try:
-            box = driver.find_element(By.XPATH, xpath)
-            return box
-        except:
-            continue
+        try: return driver.find_element(By.XPATH, xpath)
+        except: continue
     return None
 
 def clear_popups(driver):
-    """Clicks 'Not Now' on notification popups"""
     try:
         driver.find_element(By.XPATH, "//button[text()='Not Now']").click()
         time.sleep(1)
     except: pass
 
-def human_type_and_click(driver, element, text):
-    driver.execute_script("arguments[0].focus();", element)
-    for char in text:
-        element.send_keys(char)
+def safe_inject_and_send(driver, element, text):
+    """
+    V27 FIX: JS INJECTION FOR CONTENT, KEYBOARD FOR ACTION
+    This bypasses the 'BMP' error because Python never tries to type the emoji.
+    It tells the browser's JavaScript engine to render it instead.
+    """
+    # 1. Use JavaScript to put the text in (Handles Emojis/Special Chars)
+    driver.execute_script("""
+        var elm = arguments[0], txt = arguments[1];
+        elm.focus();
+        document.execCommand('insertText', false, txt);
+    """, element, text)
+    
+    # 2. Wake Up the UI (Standard Keys are safe)
     element.send_keys(" ") 
     element.send_keys(Keys.BACK_SPACE)
     time.sleep(0.1)
     
-    # Try Enter
+    # 3. Send
     element.send_keys(Keys.ENTER)
 
 def run_life_cycle(agent_id, user, pw, cookie, target, messages):
@@ -149,13 +150,10 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
         driver.refresh()
         time.sleep(5)
 
-        # DEBUG: Log where we are going
         target_url = f"https://www.instagram.com/direct/t/{target}/"
         log_status(agent_id, f"🔍 Navigating to: .../direct/t/{target[:5]}...")
         driver.get(target_url)
         time.sleep(5)
-        
-        # CLEAR POPUPS
         clear_popups(driver)
 
         if "login" in driver.current_url:
@@ -165,15 +163,11 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
             time.sleep(5)
             clear_popups(driver)
 
-        # 🚨 V26: HUNTER MODE
         msg_box = find_chat_box(driver)
-        
         if not msg_box:
-            log_status(agent_id, f"❌ ERROR: Chat box not found. Current URL: {driver.current_url}")
-            # If we are in /inbox/ but NOT in /t/ID/, the ID is wrong.
+            log_status(agent_id, f"❌ ERROR: Chat box not found.")
             if "/inbox" in driver.current_url and "/t/" not in driver.current_url:
-                log_status(agent_id, "💀 FATAL: Instagram redirected to Inbox. Your TARGET_THREAD_ID is invalid!")
-            
+                log_status(agent_id, "💀 FATAL: Redirected to Inbox. ID Invalid.")
             driver.save_screenshot(f"debug_agent_{agent_id}_error.png")
             return
 
@@ -185,16 +179,17 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 driver.refresh()
                 time.sleep(5)
                 clear_popups(driver)
-                msg_box = find_chat_box(driver) # Re-hunt after refresh
+                msg_box = find_chat_box(driver)
                 if not msg_box: break
                 last_refresh_time = time.time()
 
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
-                    jitter = "⠀" * random.randint(0, 1)
+                    jitter = "⠀" * random.randint(0, 1) # This invisible char caused the error!
                     
-                    human_type_and_click(driver, msg_box, f"{msg}{jitter}")
+                    # 🚨 V27: SAFE INJECT
+                    safe_inject_and_send(driver, msg_box, f"{msg}{jitter}")
 
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
@@ -206,7 +201,8 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 time.sleep(CYCLE_DELAY)
             except Exception as e:
                 log_status(agent_id, f"⚠️ Loop Error: {e}")
-                msg_box = find_chat_box(driver) # Try to recover box
+                # If element becomes stale (page update), try to find it again
+                msg_box = find_chat_box(driver)
                 if not msg_box: break
 
     except Exception as e:
@@ -229,7 +225,7 @@ def main():
     with open(LOG_FILE, "w") as f:
         f.write(f"--- SESSION START: {datetime.datetime.now()} ---\n")
     
-    print(f"🔥 V26 SELECTOR HUNTER | {THREADS} THREADS", flush=True)
+    print(f"🔥 V27 JS BYPASS | {THREADS} THREADS", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
