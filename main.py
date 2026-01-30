@@ -15,7 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- CONFIGURATION ---
 THREADS = 2           
 BURST_SIZE = 5        
-BURST_DELAY = 0.5     
+BURST_DELAY = 1.0     # Slower delay to ensure React processes the text
 CYCLE_DELAY = 2.0     
 SESSION_DURATION = 1200 
 REFRESH_INTERVAL = 300 
@@ -92,40 +92,45 @@ def find_chat_box(driver):
     selectors = [
         "//div[@contenteditable='true']",
         "//div[@role='textbox']",
-        "//textarea",
-        "//div[contains(@aria-label, 'Message')]",
+        "//textarea"
     ]
     for xpath in selectors:
         try: return driver.find_element(By.XPATH, xpath)
         except: continue
     return None
 
-def clear_popups(driver):
-    try:
-        driver.find_element(By.XPATH, "//button[text()='Not Now']").click()
-        time.sleep(1)
-    except: pass
-
-def safe_inject_and_send(driver, element, text):
+def react_force_type(driver, element, text):
     """
-    V27 FIX: JS INJECTION FOR CONTENT, KEYBOARD FOR ACTION
-    This bypasses the 'BMP' error because Python never tries to type the emoji.
-    It tells the browser's JavaScript engine to render it instead.
+    V28: REACT HYDRATION
+    Forces React to recognize the input by firing multiple JS events.
     """
-    # 1. Use JavaScript to put the text in (Handles Emojis/Special Chars)
+    # 1. Inject Text & Fire Events
     driver.execute_script("""
-        var elm = arguments[0], txt = arguments[1];
-        elm.focus();
-        document.execCommand('insertText', false, txt);
+        var element = arguments[0];
+        var text = arguments[1];
+        
+        element.innerText = text;
+        
+        // This makes Instagram 'see' the change
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('focus', { bubbles: true }));
     """, element, text)
     
-    # 2. Wake Up the UI (Standard Keys are safe)
-    element.send_keys(" ") 
+    # 2. Physical Wake-Up Call (Space + Backspace)
+    # This enables the "Send" button if JS failed to do so
+    element.send_keys(" ")
     element.send_keys(Keys.BACK_SPACE)
-    time.sleep(0.1)
+    time.sleep(0.2)
     
-    # 3. Send
-    element.send_keys(Keys.ENTER)
+    # 3. Try to Click "Send" (Prioritized over Enter key)
+    try:
+        # Look for the Send button (it usually says 'Send')
+        send_btn = driver.find_element(By.XPATH, "//div[@role='button'][text()='Send']")
+        send_btn.click()
+    except:
+        # Fallback to Enter Key if button not found
+        element.send_keys(Keys.ENTER)
 
 def run_life_cycle(agent_id, user, pw, cookie, target, messages):
     driver = None
@@ -154,21 +159,22 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
         log_status(agent_id, f"🔍 Navigating to: .../direct/t/{target[:5]}...")
         driver.get(target_url)
         time.sleep(5)
-        clear_popups(driver)
+        
+        # Clear Popups
+        try: driver.find_element(By.XPATH, "//button[text()='Not Now']").click()
+        except: pass
 
         if "login" in driver.current_url:
             if not perform_login(driver, agent_id, user, pw):
                 return
             driver.get(target_url)
             time.sleep(5)
-            clear_popups(driver)
 
         msg_box = find_chat_box(driver)
         if not msg_box:
             log_status(agent_id, f"❌ ERROR: Chat box not found.")
             if "/inbox" in driver.current_url and "/t/" not in driver.current_url:
                 log_status(agent_id, "💀 FATAL: Redirected to Inbox. ID Invalid.")
-            driver.save_screenshot(f"debug_agent_{agent_id}_error.png")
             return
 
         log_status(agent_id, "✅ Target Locked. Sending...")
@@ -178,7 +184,6 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 log_status(agent_id, "♻️ RAM Soft Refresh...")
                 driver.refresh()
                 time.sleep(5)
-                clear_popups(driver)
                 msg_box = find_chat_box(driver)
                 if not msg_box: break
                 last_refresh_time = time.time()
@@ -186,10 +191,10 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
             try:
                 for _ in range(BURST_SIZE):
                     msg = random.choice(messages)
-                    jitter = "⠀" * random.randint(0, 1) # This invisible char caused the error!
+                    jitter = "⠀" * random.randint(0, 1)
                     
-                    # 🚨 V27: SAFE INJECT
-                    safe_inject_and_send(driver, msg_box, f"{msg}{jitter}")
+                    # 🚨 V28: USE REACT HYDRATOR
+                    react_force_type(driver, msg_box, f"{msg}{jitter}")
 
                     sent_in_this_life += 1
                     with COUNTER_LOCK:
@@ -201,14 +206,11 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 time.sleep(CYCLE_DELAY)
             except Exception as e:
                 log_status(agent_id, f"⚠️ Loop Error: {e}")
-                # If element becomes stale (page update), try to find it again
                 msg_box = find_chat_box(driver)
                 if not msg_box: break
 
     except Exception as e:
         log_status(agent_id, f"❌ Critical Crash: {e}")
-        if driver:
-            driver.save_screenshot(f"debug_crash_agent_{agent_id}.png")
     finally:
         if driver:
             try: driver.quit()
@@ -225,7 +227,7 @@ def main():
     with open(LOG_FILE, "w") as f:
         f.write(f"--- SESSION START: {datetime.datetime.now()} ---\n")
     
-    print(f"🔥 V27 JS BYPASS | {THREADS} THREADS", flush=True)
+    print(f"🔥 V28 REACT HYDRATOR | {THREADS} THREADS", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
