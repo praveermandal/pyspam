@@ -11,12 +11,11 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
 
 # --- CONFIGURATION ---
 THREADS = 2           
 BURST_SIZE = 5        
-BURST_DELAY = 0.5     # Slowed down to allow button click
+BURST_DELAY = 0.5     
 CYCLE_DELAY = 2.0     
 SESSION_DURATION = 1200 
 REFRESH_INTERVAL = 300 
@@ -59,7 +58,6 @@ def get_driver(agent_id):
     
     chrome_options.add_argument(f"user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/12{agent_id+2}.0.0.0 Safari/537.36")
     chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_p_{agent_id}_{random.randint(1,99999)}")
-    
     return webdriver.Chrome(options=chrome_options)
 
 def perform_login(driver, agent_id, username, password):
@@ -85,48 +83,48 @@ def perform_login(driver, agent_id, username, password):
             return True
         else:
             log_status(agent_id, "❌ Login Failed.")
-            driver.save_screenshot(f"debug_login_fail_agent_{agent_id}.png")
             return False
     except Exception as e:
         log_status(agent_id, f"❌ Login Error: {e}")
         return False
 
-def human_type_and_click(driver, element, text):
+def find_chat_box(driver):
     """
-    V25: NUCLEAR OPTION
-    1. Focuses element
-    2. Types keys one by one (True Simulation)
-    3. Finds the 'Send' button explicitly
-    4. Clicks it
+    V26: The Selector Hunter
+    Tries multiple known XPaths for the Instagram chat box.
     """
-    # 1. Clear & Focus
-    driver.execute_script("arguments[0].focus();", element)
+    selectors = [
+        "//div[@contenteditable='true']",                  # Standard
+        "//div[@role='textbox']",                          # Alternate
+        "//textarea",                                      # Mobile/Legacy
+        "//div[contains(@aria-label, 'Message')]",         # Accessible Label
+    ]
     
-    # 2. Type Human-like (This triggers the UI updates)
+    for xpath in selectors:
+        try:
+            box = driver.find_element(By.XPATH, xpath)
+            return box
+        except:
+            continue
+    return None
+
+def clear_popups(driver):
+    """Clicks 'Not Now' on notification popups"""
+    try:
+        driver.find_element(By.XPATH, "//button[text()='Not Now']").click()
+        time.sleep(1)
+    except: pass
+
+def human_type_and_click(driver, element, text):
+    driver.execute_script("arguments[0].focus();", element)
     for char in text:
         element.send_keys(char)
-        # Tiny delay between keystrokes to mimic human
-        # time.sleep(random.uniform(0.01, 0.03)) 
-    
-    # 3. Force Space to wake up "Send" button
     element.send_keys(" ") 
     element.send_keys(Keys.BACK_SPACE)
     time.sleep(0.1)
-
-    # 4. FIND AND CLICK THE SEND BUTTON
-    # We look for the button that appears only when text is typed
-    try:
-        # Standard "Send" Text Button
-        send_btn = driver.find_element(By.XPATH, "//div[@role='button'][text()='Send']")
-        send_btn.click()
-    except:
-        try:
-            # Fallback: Sometimes it's not text, but an SVG/Icon container
-            # This looks for the generic 'Send' button container in Direct
-            # Modify this XPath if Instagram updates their UI
-            element.send_keys(Keys.ENTER)
-        except:
-            pass
+    
+    # Try Enter
+    element.send_keys(Keys.ENTER)
 
 def run_life_cycle(agent_id, user, pw, cookie, target, messages):
     driver = None
@@ -138,7 +136,6 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
         log_status(agent_id, "🚀 Phoenix Rising...")
         driver = get_driver(agent_id)
         
-        # Cookie Logic
         driver.get("https://www.instagram.com/")
         time.sleep(3)
         if "instagram.com" not in driver.current_url:
@@ -152,21 +149,31 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
         driver.refresh()
         time.sleep(5)
 
-        log_status(agent_id, "🔍 Navigating to Target...")
-        driver.get(f"https://www.instagram.com/direct/t/{target}/")
+        # DEBUG: Log where we are going
+        target_url = f"https://www.instagram.com/direct/t/{target}/"
+        log_status(agent_id, f"🔍 Navigating to: .../direct/t/{target[:5]}...")
+        driver.get(target_url)
         time.sleep(5)
         
+        # CLEAR POPUPS
+        clear_popups(driver)
+
         if "login" in driver.current_url:
             if not perform_login(driver, agent_id, user, pw):
                 return
-            driver.get(f"https://www.instagram.com/direct/t/{target}/")
+            driver.get(target_url)
             time.sleep(5)
+            clear_popups(driver)
 
-        box_xpath = "//div[@contenteditable='true']"
-        try:
-            msg_box = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, box_xpath)))
-        except:
-            log_status(agent_id, "❌ ERROR: Chat box not found!")
+        # 🚨 V26: HUNTER MODE
+        msg_box = find_chat_box(driver)
+        
+        if not msg_box:
+            log_status(agent_id, f"❌ ERROR: Chat box not found. Current URL: {driver.current_url}")
+            # If we are in /inbox/ but NOT in /t/ID/, the ID is wrong.
+            if "/inbox" in driver.current_url and "/t/" not in driver.current_url:
+                log_status(agent_id, "💀 FATAL: Instagram redirected to Inbox. Your TARGET_THREAD_ID is invalid!")
+            
             driver.save_screenshot(f"debug_agent_{agent_id}_error.png")
             return
 
@@ -177,7 +184,9 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 log_status(agent_id, "♻️ RAM Soft Refresh...")
                 driver.refresh()
                 time.sleep(5)
-                msg_box = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, box_xpath)))
+                clear_popups(driver)
+                msg_box = find_chat_box(driver) # Re-hunt after refresh
+                if not msg_box: break
                 last_refresh_time = time.time()
 
             try:
@@ -185,7 +194,6 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                     msg = random.choice(messages)
                     jitter = "⠀" * random.randint(0, 1)
                     
-                    # 🚨 V25: USE CLICKER
                     human_type_and_click(driver, msg_box, f"{msg}{jitter}")
 
                     sent_in_this_life += 1
@@ -198,9 +206,8 @@ def run_life_cycle(agent_id, user, pw, cookie, target, messages):
                 time.sleep(CYCLE_DELAY)
             except Exception as e:
                 log_status(agent_id, f"⚠️ Loop Error: {e}")
-                # Take screenshot on error to debug why click failed
-                driver.save_screenshot(f"debug_loop_fail_{agent_id}.png")
-                break 
+                msg_box = find_chat_box(driver) # Try to recover box
+                if not msg_box: break
 
     except Exception as e:
         log_status(agent_id, f"❌ Critical Crash: {e}")
@@ -222,7 +229,7 @@ def main():
     with open(LOG_FILE, "w") as f:
         f.write(f"--- SESSION START: {datetime.datetime.now()} ---\n")
     
-    print(f"🔥 V25 NUCLEAR CLICKER | {THREADS} THREADS", flush=True)
+    print(f"🔥 V26 SELECTOR HUNTER | {THREADS} THREADS", flush=True)
     
     user = os.environ.get("INSTA_USER", "").strip()
     pw = os.environ.get("INSTA_PASS", "").strip()
