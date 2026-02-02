@@ -1,20 +1,18 @@
-name: Phoenix V64 Loop
+name: Phoenix V100 (Linux Turbo)
 
 on:
-  workflow_dispatch:      # Manual trigger
-  repository_dispatch:    # Loop trigger
-    types: [restart_bot]
+  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # Backup triggers every 6 hours
+    - cron: '0 */4 * * *' # ⚠️ Starts every 4 hours
 
-permissions:
-  actions: write
-  contents: read
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-    timeout-minutes: 350  # Max run time (6 hours)
+  run-loop:
+    runs-on: ubuntu-latest # 🐧 SWITCHED TO LINUX
+    timeout-minutes: 350 
 
     steps:
     - name: Checkout Code
@@ -25,43 +23,30 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install Google Chrome
-      run: |
-        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
-        sudo apt-get update
-        sudo apt-get install -y google-chrome-stable
-
     - name: Install Dependencies
       run: |
-        pip install selenium
+        pip install selenium selenium-stealth
+        # Chrome is pre-installed on Ubuntu runners, no extra setup needed.
 
-    - name: 🔥 Run V64 Protocol
-      id: bot_process
-      continue-on-error: true  # CRITICAL: Ensures restart happens even if script errors
+    - name: 🔥 Run Phoenix Engine (Linux Loop)
       env:
+        PYTHONIOENCODING: utf-8
         INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
         TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
         MESSAGES: ${{ secrets.MESSAGES }}
-      run: python main.py
-
-    - name: 🔄 The Lazarus Protocol (Auto-Restart)
-      if: always()  # Runs no matter what
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        echo "⚠️ Bot finished (20 mins elapsed). Calculating restart..."
-        
-        # 🛡️ SAFETY DELAY: 2 to 5 minutes
-        # Short enough to keep spamming, long enough to reset the connection
-        DELAY=$(( ( RANDOM % 180 ) + 120 ))
-        echo "💤 Sleeping for $DELAY seconds..."
-        sleep $DELAY
-        
-        # 🔄 DYNAMIC RESTART
-        # This gets the internal ID of the workflow running RIGHT NOW
-        echo "🔄 Fetching current workflow ID..."
-        WORKFLOW_ID=$(gh run view ${{ github.run_id }} --json workflowDatabaseId --jq '.workflowDatabaseId')
-        
-        echo "🚀 Restarting Workflow ID: $WORKFLOW_ID"
-        gh workflow run $WORKFLOW_ID
+        # 🐧 BASH INFINITE LOOP
+        # This replaces the Windows PowerShell loop
+        while true; do
+          echo "🚀 Starting Linux Turbo Engine..."
+          
+          # Run Python and catch exit codes
+          if python main.py; then
+            echo "✅ Script finished naturally."
+          else
+            echo "❌ Script crashed internally."
+          fi
+          
+          echo "⚠️ Crash/Exit Detected. Respawning in 10 seconds..."
+          sleep 10
+        done
