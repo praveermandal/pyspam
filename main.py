@@ -21,16 +21,16 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # --- V100 SINGLE AGENT CONFIGURATION ---
-THREADS = 1             # ✅ Single Agent (Max Efficiency)
+THREADS = 1             # ✅ Single Agent
 TOTAL_DURATION = 25000  # 7 Hours
 
 # ⚡ HYPER SPEED
 BURST_SPEED = (0.1, 0.3) 
 
-# ♻️ RESTART CYCLES (10 Minutes)
-# Longer cycles = Less startup time = More messages
-SESSION_MIN_SEC = 600   # 600 Seconds = 10 Minutes
-SESSION_MAX_SEC = 600   # Fixed
+# ♻️ RESTART CYCLES (2 Minutes)
+# ⚠️ 120 Seconds = 2 Minutes
+SESSION_MIN_SEC = 120   
+SESSION_MAX_SEC = 120   
 
 GLOBAL_SENT = 0
 COUNTER_LOCK = threading.Lock()
@@ -114,15 +114,14 @@ def extract_session_id(raw_cookie):
     return match.group(1).strip() if match else raw_cookie.strip()
 
 def run_life_cycle(agent_id, cookie, target, messages):
-    # No stagger needed for single agent
     global_start = time.time()
 
     while (time.time() - global_start) < TOTAL_DURATION:
         driver = None
         temp_path = None
         
-        # ⚠️ FIXED 10 MINUTE SESSION
-        current_session_limit = 600 
+        # ⚠️ FIXED 2 MINUTE SESSION
+        current_session_limit = 120 
         session_start = time.time()
         
         try:
@@ -137,10 +136,10 @@ def run_life_cycle(agent_id, cookie, target, messages):
             clean_session = extract_session_id(cookie)
             driver.add_cookie({'name': 'sessionid', 'value': clean_session, 'path': '/', 'domain': '.instagram.com'})
             driver.refresh()
-            time.sleep(random.uniform(4, 6)) 
+            time.sleep(random.uniform(3, 5)) 
             
             driver.get(f"https://www.instagram.com/direct/t/{target}/")
-            time.sleep(5)
+            time.sleep(4) # Reduced wait slightly for speed
             
             log_status(agent_id, "📢 Sending Activation Ping...")
             try:
@@ -175,7 +174,7 @@ def run_life_cycle(agent_id, cookie, target, messages):
             log_status(agent_id, f"[ERROR] Glitch: {err_msg[:50]}...")
         
         finally:
-            log_status(agent_id, "[CLEAN] ♻️ 10 Minute Restart...")
+            log_status(agent_id, "[CLEAN] ♻️ 2 Minute Restart...")
             if driver: 
                 try: driver.quit()
                 except: pass
