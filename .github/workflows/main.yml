@@ -1,52 +1,41 @@
-name: Phoenix V100 (Linux Turbo)
+name: Phoenix V100 Ultra-Matrix (40-Agent)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */4 * * *' # ⚠️ Starts every 4 hours
-
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+    - cron: '0 */3 * * *' # Auto-restarts every 3 hours
 
 jobs:
-  run-loop:
-    runs-on: ubuntu-latest # 🐧 SWITCHED TO LINUX
-    timeout-minutes: 350 
+  ultra-strike:
+    strategy:
+      matrix:
+        # 🚀 Spawning 20 separate machines simultaneously
+        machine_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
 
     - name: Install Dependencies
-      run: |
-        pip install selenium selenium-stealth
-        # Chrome is pre-installed on Ubuntu runners, no extra setup needed.
+      run: pip install selenium==4.21.0 selenium-stealth
 
-    - name: 🔥 Run Phoenix Engine (Linux Loop)
+    - name: 🔥 Run Ultra-Machine ${{ matrix.machine_id }}
       env:
-        PYTHONIOENCODING: utf-8
         INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
         TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
         MESSAGES: ${{ secrets.MESSAGES }}
+        MACHINE_ID: ${{ matrix.machine_id }}
       run: |
-        # 🐧 BASH INFINITE LOOP
-        # This replaces the Windows PowerShell loop
         while true; do
-          echo "🚀 Starting Linux Turbo Engine..."
-          
-          # Run Python and catch exit codes
-          if python main.py; then
-            echo "✅ Script finished naturally."
-          else
-            echo "❌ Script crashed internally."
-          fi
-          
-          echo "⚠️ Crash/Exit Detected. Respawning in 10 seconds..."
-          sleep 10
+          python -u main.py
+          echo "⚠️ Machine ${{ matrix.machine_id }} Respawning..."
+          sleep 5
         done
