@@ -1,24 +1,55 @@
-name: Phoenix-Shift-B
+name: Phoenix V100.30 Hyper-Drive (40-Agent Matrix)
 
 on:
   schedule:
-    # 🕒 Starts at 06:00 and 18:00 UTC
-    - cron: '0 6,18 * * *'
-  workflow_dispatch:
+    # 🕒 Rotates every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allows manual trigger for testing
 
 jobs:
   ultra-strike:
     strategy:
+      fail-fast: false
       matrix:
-        machine_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        # 🚀 Spawning 20 virtual machines simultaneously (2 agents per machine = 40 total)
+        machine_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
     runs-on: ubuntu-latest
-    timeout-minutes: 355 # Runs for 6 hours
+    timeout-minutes: 355 # 5 mins short of 6 hours for clean handover
+
     steps:
-      - uses: actions/checkout@v4
-      - run: pip install selenium==4.21.0 selenium-stealth
-      - name: 🔥 Run Shift B
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Critical Dependencies
+        # ✅ FIXED: This line ensures 'webdriver-manager' and 'selenium' are present
+        run: |
+          python -m pip install --upgrade pip
+          pip install selenium==4.21.0 selenium-stealth webdriver-manager
+
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: 🔥 Run Hyper-Drive Machine ${{ matrix.machine_id }}
         env:
           INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
           TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
           MESSAGES: ${{ secrets.MESSAGES }}
-        run: python -u main.py
+          MACHINE_ID: ${{ matrix.machine_id }}
+        run: |
+          # 🎲 Random start delay (1-60s) to prevent GitHub suspension for bot patterns
+          sleep $(( ( RANDOM % 60 ) + 1 ))
+          
+          # 🔄 Infinite loop to auto-restart if Instagram crashes the browser
+          while true; do
+            python -u main.py
+            echo "⚠️ Machine ${{ matrix.machine_id }} crashed. Rebooting in 5s..."
+            sleep 5
+          done
