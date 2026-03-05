@@ -1,41 +1,40 @@
 # -*- coding: utf-8 -*-
-# 🚀 PROJECT: PHOENIX V100.30 (HYPER-DRIVE)
-# 🛡️ CREDITS: PRAVEERFUCKS | ULTRA-MATRIX OPTIMIZED
-# ⚡ SPEED: 0.01s PULSE | LEXICAL STATE INJECTION | EAGER LOAD
+# 🚀 PROJECT: PHOENIX V100.31 (DIRECT-DISPATCH)
+# 🛡️ CREDITS: PRAVEERFUCKS | 24/7 ULTRA-MATRIX
+# ⚡ FIX: DOM LOADING LAG | REACT STATE PURGE | AUTO-MEMORY RECOVERY
 
-import os, time, random, sys, tempfile, string, json, subprocess, atexit
+import os, time, random, sys, string, json
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- ⚡ HYPER-DRIVE CONFIG ---
-STRIKE_DELAY = 0.01  # 🔥 10ms micro-pulse for maximum speed
-CONFIG_FILE = "phoenix_vault.json"
+# --- ⚡ SPEED CONFIG ---
+STRIKE_DELAY = 0.01  # 10ms Pulse
+REFRESH_INTERVAL = 120 # Auto-refresh every 2 mins to clear DOM lag
 
-def get_driver(agent_id):
+def get_driver():
     options = Options()
     options.add_argument("--headless=new")
+    options.page_load_strategy = 'eager' # Don't wait for images
     
-    # 🏎️ EAGER LOAD: Tells Chrome to ignore images/ads and only load the DM box
-    options.page_load_strategy = 'eager'
+    # Block heavy assets to keep GitHub RAM free
     options.add_argument("--blink-settings=imagesEnabled=false")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-notifications")
+    options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--js-flags='--max-old-space-size=512'")
     
-    # 📱 IPAD PRO EMULATION (STABLE)
+    # iPad Pro Emulation for stable DOM
     mobile_emulation = { "deviceName": "iPad Pro" }
     options.add_experimental_option("mobileEmulation", mobile_emulation)
     
+    # Automatic driver management
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(options=options, service=service)
     return driver
 
-def hyper_pulse(driver, text):
-    """V30: Injects message into React/Lexical memory and fires instantly."""
+def direct_dispatch(driver, text):
+    """V31: Force-injects text and purges the React state instantly."""
     try:
         salt = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
         final_text = f"{text} [{random.randint(1000, 9999)}]-{salt}"
@@ -44,66 +43,68 @@ def hyper_pulse(driver, text):
             const box = document.querySelector('div[role="textbox"], textarea, [contenteditable="true"]');
             if (box) {
                 box.focus();
-                // 1. Clear & Inject
-                document.execCommand('selectAll', false, null);
-                document.execCommand('delete', false, null);
+                
+                // 1. Native Injection (Fastest Method)
                 document.execCommand('insertText', false, arguments[0]);
                 
-                // 2. Hydrate React State
+                // 2. Trigger Input Event for React
                 box.dispatchEvent(new Event('input', { bubbles: true }));
 
-                // 3. Hardware-Level Enter Event (Bypasses 'Send' button rendering)
+                // 3. Hardware-Level Enter (Zero-Lag)
                 const enter = new KeyboardEvent('keydown', {
                     bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13
                 });
                 box.dispatchEvent(enter);
                 
-                // 4. Cleanup for next pulse
-                box.innerHTML = "";
+                // 4. 🔥 THE DOM PURGE: Kills the loading circle immediately
+                setTimeout(() => {
+                    box.innerHTML = "";
+                    box.innerText = "";
+                    if(box.value) box.value = "";
+                }, 5); 
             }
         """, final_text)
         return True
     except: return False
 
 def main():
-    # Load Environment Variables for GitHub Matrix or Local Manual
+    # Fetch credentials from GitHub Secrets
     cookie = os.environ.get("INSTA_COOKIE")
     target = os.environ.get("TARGET_THREAD_ID")
     messages_raw = os.environ.get("MESSAGES")
     
-    # Fallback to local config if Env is empty
-    if not cookie and os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            conf = json.load(f)
-            cookie, target, messages_raw = conf['c'], conf['t'], conf['m']
-
-    if not cookie:
-        print("❌ ERROR: No Credentials Found.")
+    if not cookie or not target:
+        print("❌ CRITICAL: Missing Env Variables (Secrets).")
         return
 
     msg_list = messages_raw.split("|")
-    agent_id = os.environ.get("MACHINE_ID", "1")
+    machine_id = os.environ.get("MACHINE_ID", "1")
     
-    print(f"🚀 HYPER-DRIVE ARMED | MACHINE {agent_id} | TARGET: {target}")
+    print(f"🚀 PHOENIX V100.31 ACTIVE | MACHINE {machine_id}")
     
-    driver = get_driver(agent_id)
+    driver = get_driver()
     try:
         driver.get(f"https://www.instagram.com/direct/t/{target}/")
         driver.add_cookie({'name': 'sessionid', 'value': cookie.strip(), 'domain': '.instagram.com'})
         driver.refresh()
         
-        time.sleep(10) # Initial handshake
+        time.sleep(12) # Wait for initial DOM hydration
         
+        start_time = time.time()
         while True:
-            if hyper_pulse(driver, random.choice(msg_list)):
+            # Check if it's time to refresh memory
+            if time.time() - start_time > REFRESH_INTERVAL:
+                print(f"\n♻️ RECOVERING MEMORY (MACHINE {machine_id})...")
+                driver.refresh()
+                time.sleep(10)
+                start_time = time.time()
+
+            if direct_dispatch(driver, random.choice(msg_list)):
                 sys.stdout.write("🚀")
                 sys.stdout.flush()
+            
             time.sleep(STRIKE_DELAY)
             
-            # Periodic Refresh to prevent 'DOM Ghosting'
-            if random.random() < 0.05: # 5% chance every strike
-                driver.refresh()
-                time.sleep(5)
     except Exception as e:
         print(f"\n⚠️ REBOOTING AGENT: {e}")
     finally:
