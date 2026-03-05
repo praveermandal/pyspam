@@ -53,3 +53,22 @@ jobs:
             echo "⚠️ Machine ${{ matrix.machine_id }} crashed. Rebooting in 5s..."
             sleep 5
           done
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: 🔥 Run Hyper-Drive Machine ${{ matrix.machine_id }}
+        env:
+          INSTA_COOKIE: ${{ secrets.INSTA_COOKIE }}
+          TARGET_THREAD_ID: ${{ secrets.TARGET_THREAD_ID }}
+          MESSAGES: ${{ secrets.MESSAGES }}
+          MACHINE_ID: ${{ matrix.machine_id }}
+        run: |
+          # 🎲 Random start delay (1-60s) to prevent GitHub suspension for bot patterns
+          sleep $(( ( RANDOM % 60 ) + 1 ))
+          
+          # 🔄 Infinite loop to auto-restart if Instagram crashes the browser
+          while true; do
+            python -u main.py
+            echo "⚠️ Machine ${{ matrix.machine_id }} crashed. Rebooting in 5s..."
+            sleep 5
+          done
